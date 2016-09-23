@@ -9,4 +9,4 @@ th rnn_train.lua
 th rnn_test.lua
 ```
 
-You can get my model [here](https://s3-eu-west-1.amazonaws.com/christopherbourez/public/torch_sin_model_1500.t7)
+You can get my model [here](https://s3-eu-west-1.amazonaws.com/christopherbourez/public/torch_sin/model_1500.t7)
