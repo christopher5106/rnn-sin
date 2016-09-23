@@ -14,7 +14,7 @@ if gpu>0 then
   cutorch.setDevice(gpu)
 end
 
-rnn = torch.load("model_3000.t7")
+rnn = torch.load("model_1500.t7")
 nPredict=152
 rho = 50
 nIndex = 1
@@ -49,7 +49,7 @@ for iteration=0,(nPredict-rho-1) do
   output = rnn:forward(start)
 
   predict[iteration+rho+1] = (output[rho]:float())[1][1]
-  --predict[iteration+rho+1] = sequence[iteration + rho +1]
+  -- predict[iteration+rho+1] = sequence[iteration + rho +1]
   -- predict[iteration+rho+1] = output
 end
 
