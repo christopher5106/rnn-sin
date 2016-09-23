@@ -31,7 +31,7 @@ rnn = nn.Sequential()
     :add(nn.Linear(hiddenSize, hiddenSize))
     :add(nn.ReLU())
     :add(nn.Linear(hiddenSize, nIndex))
-    :add(nn.Tanh())
+    :add(nn.HardTanh())
 
 rnn:training()
 print(rnn)

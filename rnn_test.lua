@@ -17,6 +17,7 @@ end
 rnn = torch.load("model_3000.t7")
 nPredict=152
 rho = 50
+nIndex = 1
 
 ii=torch.linspace(0,20000, 200000)
 sequence=torch.cos(ii)
@@ -34,34 +35,23 @@ for step=1,rho do
 end
 
 start = {}
-iteration=0
-while rho + iteration < nPredict do
-  print("--")
+
+-- start=torch.Tensor(rho,1,nIndex):zero()
+-- if gpu>0 then
+--   start=start:cuda()
+-- end
+
+for iteration=0,(nPredict-rho-1) do
   for step=1,rho do
     start[step] = predict:index(1,torch.LongTensor({step+iteration})):view(1,1)
-    print(start[step][1][1])
   end
-
-  -- print("start")
-  -- pt(start)
   rnn:forget()
   output = rnn:forward(start)
 
-  print("result")
-  -- for step=1,rho do
-  --   print(output[step][1][1])
-  -- end
-  print((output[rho]:float())[1][1] )
-  print(sequence[iteration + rho +1])
-  print("sqe : " , ( sequence[iteration + rho +1] - (output[rho]:float())[1][1] )^2 )
   predict[iteration+rho+1] = (output[rho]:float())[1][1]
   --predict[iteration+rho+1] = sequence[iteration + rho +1]
-
-  iteration = iteration + 1
+  -- predict[iteration+rho+1] = output
 end
-
-print("result")
-print(predict)
 
 gnuplot.pngfigure("output.png")
 gnuplot.plot({'predict',predict,'+'},{'sinus',sequence:narrow(1,1,nPredict),'-'})
