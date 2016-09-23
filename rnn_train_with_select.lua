@@ -17,29 +17,21 @@ nIndex = 1
 lr = 0.01
 
 
--- rm = nn.Sequential() -- input is {x[t], h[t-1]}
---  :add(nn.ParallelTable()
---     :add(nn.Linear(nIndex, hiddenSize)) -- input layer
---     :add(nn.Linear(hiddenSize, hiddenSize))) -- recurrent layer
---  :add(nn.CAddTable()) -- merge
---  :add(nn.Sigmoid()) -- transfer
---
--- rnn = nn.Sequential()
---  :add(nn.Recurrence(rm, hiddenSize, 1, rho))
-
 rnn = nn.Sequential()
    :add(nn.FastLSTM(nIndex, hiddenSize))
    :add(nn.NormStabilizer())
    :add(nn.FastLSTM(hiddenSize, hiddenSize))
    :add(nn.NormStabilizer())
-   :add(nn.Dropout(0.5))
-   :add(nn.Linear(hiddenSize, hiddenSize))
-   :add(nn.ReLU())
-   :add(nn.Linear(hiddenSize, nIndex))
-   :add(nn.HardTanh())
 
-rnn = nn.Sequencer(rnn)
-
+rnn = nn.Sequential()
+    :add(nn.SplitTable(0,2))
+    :add(nn.Sequencer(rnn))
+    :add(nn.SelectTable(-1))
+    :add(nn.Dropout(0.5))
+    :add(nn.Linear(hiddenSize, hiddenSize))
+    :add(nn.ReLU())
+    :add(nn.Linear(hiddenSize, nIndex))
+    :add(nn.Tanh())
 
 rnn:training()
 print(rnn)
@@ -68,18 +60,13 @@ if gpu>0 then
   offsets=offsets:cuda()
 end
 
-local gradOutputsZeroed = {}
-for step=1,rho do
-  gradOutputsZeroed[step] = torch.zeros(batchSize,1)
-  if gpu>0 then
-    gradOutputsZeroed[step] = gradOutputsZeroed[step]:cuda()
-  end
-end
-
 for iteration=1,nIters do
   rnn:forget()
-   local inputs, targets = {}, {}
-   for step=1,rho do
+  local inputs=torch.Tensor(rho,batchSize,nIndex):zero()
+  if gpu>0 then
+    inputs=inputs:cuda()
+  end
+  for step=1,rho do
       inputs[step] = sequence:index(1, offsets):view(batchSize,nIndex)
       offsets:add(1)
       for j=1,batchSize do
@@ -87,15 +74,14 @@ for iteration=1,nIters do
             offsets[j] = 1
          end
       end
-      targets[step] = sequence:index(1, offsets)
    end
+   targets = sequence:index(1, offsets)
    rnn:zeroGradParameters()
    local outputs = rnn:forward(inputs)
-   local err = criterion:forward(outputs[rho], targets[rho])
+   local err = criterion:forward(outputs, targets)
    print(string.format("Iteration %d ; NLL err = %f ", iteration, err))
-   local gradOutputs = criterion:backward(outputs[rho], targets[rho])
-   gradOutputsZeroed[rho] = gradOutputs
-   local gradInputs = rnn:backward(inputs, gradOutputsZeroed)
+   local gradOutputs = criterion:backward(outputs, targets)
+   local gradInputs = rnn:backward(inputs, gradOutputs)
    rnn:updateParameters(lr)
 
    if iteration % 1500 == 0 then
