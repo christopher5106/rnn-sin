@@ -7,11 +7,11 @@ cmd:text()
 cmd:text('Train a model to predict sin')
 cmd:text()
 cmd:text('Options')
-cmd:option('-model', 'lstm', 'lstm, simple, grid-lstm')
+cmd:option('-model', 'lstm', 'lstm, grid-lstm')
 cmd:option('-select', 'true', 'use a selecttable')
 cmd:option('-learning_rate',0.01,'learning rate')
 cmd:option('-dropout',0,'dropout for regularization in grid-lstm. 0 = no dropout')
-cmd:option('-nb_layers',2,'number of layers in grid-lstm')
+cmd:option('-nb_layers',2,'Number of layers')
 cmd:option('-rho',50,'Sequence length')
 cmd:option('-batch_size',100,'Batch size')
 cmd:option('-hidden_size',300,'Hidden layer size')
@@ -21,6 +21,7 @@ cmd:option('-resume','','Resume from a model')
 cmd:option('-eval_every',1500,'Evaluation every number of iterations')
 cmd:option('-nPredict',152,'Number of predictions during testing')
 cmd:option('-eval_one_step','false','Eval only one step next during testing')
+cmd:option('-hypertuning','false','Parameter hypertuning')
 opt = cmd:parse(arg)
 
 
@@ -39,25 +40,16 @@ if opt.resume ~= '' then
   rnn = torch.load(opt.resume)
 else
 
-  if opt.model == 'simple_rnn' then
-
-    rm = nn.Sequential() -- input is {x[t], h[t-1]}
-     :add(nn.ParallelTable()
-        :add(nn.Linear(nIndex, opt.hidden_size)) -- input layer
-        :add(nn.Linear(opt.hidden_size, opt.hidden_size))) -- recurrent layer
-     :add(nn.CAddTable()) -- merge
-     :add(nn.Sigmoid()) -- transfer
-
-    rnn = nn.Sequential()
-     :add(nn.Recurrence(rm, opt.hidden_size, 1, opt.rho))
-
-  elseif opt.model == 'lstm' then
+  if opt.model == 'lstm' then
 
     rnn = nn.Sequential()
        :add(nn.FastLSTM(nIndex, opt.hidden_size))
        :add(nn.NormStabilizer())
-       :add(nn.FastLSTM(opt.hidden_size, opt.hidden_size))
+
+    for i = 2,opt.nb_layers do
+       rnn:add(nn.FastLSTM(opt.hidden_size, opt.hidden_size))
        :add(nn.NormStabilizer())
+    end
 
   elseif opt.model == 'grid-lstm' then
 
@@ -67,6 +59,7 @@ else
 
   end
 
+-- just 2 different ways to write:
   if opt.select ~= 'false' then
     print("Mode selecttable")
     rnn = nn.Sequential()
@@ -117,24 +110,6 @@ function pt (a)
   end
 end
 
-
-offsets = {}
-for i=1,opt.batch_size do
-   table.insert(offsets, math.ceil(math.random()* (sequence:size(1)-opt.rho) ))
-end
-offsets = torch.LongTensor(offsets)
-if opt.gpu>0 then
-  offsets=offsets:cuda()
-end
-
-local gradOutputsZeroed = {}
-for step=1,opt.rho do
-  gradOutputsZeroed[step] = torch.zeros(opt.batch_size,1)
-  if opt.gpu>0 then
-    gradOutputsZeroed[step] = gradOutputsZeroed[step]:cuda()
-  end
-end
-
 function eval(i)
   rnn:evaluate()
   local predict = torch.FloatTensor(opt.nPredict)
@@ -173,55 +148,100 @@ function eval(i)
     end
   end
 
-  gnuplot.pngfigure("output_" .. i .. ".png")
+  gnuplot.pngfigure("output_" .. opt.nb_layers .. "x" .. opt.model .. "_b" .. opt.batch_size .. "_h" .. opt.hidden_size .. "_i" .. i .. ".png")
   gnuplot.plot({'predict',predict,'+'},{'sinus',sequence:narrow(1,1,opt.nPredict),'-'})
   gnuplot.plotflush()
 
 end
 
-for iteration=1,opt.iters do
-  rnn:forget()
-  local inputs, targets
-  if opt.select ~= 'false' then
-    inputs=torch.Tensor(opt.rho,opt.batch_size,nIndex):zero()
-    if opt.gpu>0 then
-      inputs=inputs:cuda()
-    end
-  else
-    inputs = {}
+function train()
+
+  offsets = {}
+  for i=1,opt.batch_size do
+     table.insert(offsets, math.ceil(math.random()* (sequence:size(1)-opt.rho) ))
   end
+  offsets = torch.LongTensor(offsets)
+  if opt.gpu>0 then
+    offsets=offsets:cuda()
+  end
+
+  local gradOutputsZeroed = {}
   for step=1,opt.rho do
-      inputs[step] = sequence:index(1, offsets):view(opt.batch_size,nIndex)
-      offsets:add(1)
-      for j=1,opt.batch_size do
-         if offsets[j] > sequence:size(1) then
-            offsets[j] = 1
-         end
+    gradOutputsZeroed[step] = torch.zeros(opt.batch_size,1)
+    if opt.gpu>0 then
+      gradOutputsZeroed[step] = gradOutputsZeroed[step]:cuda()
+    end
+  end
+
+
+  for iteration=1,opt.iters do
+    rnn:forget()
+    local inputs, targets
+    if opt.select ~= 'false' then
+      inputs=torch.Tensor(opt.rho,opt.batch_size,nIndex):zero()
+      if opt.gpu>0 then
+        inputs=inputs:cuda()
       end
-  end
-  targets = sequence:index(1, offsets)
-  rnn:zeroGradParameters()
-  local outputs = rnn:forward(inputs)
+    else
+      inputs = {}
+    end
+    for j=1,opt.batch_size do
+       if offsets[j] > sequence:size(1) - opt.rho then
+          offsets[j] = 1
+       end
+    end
+    for step=1,opt.rho do
+        inputs[step] = sequence:index(1, offsets):view(opt.batch_size,nIndex)
+        offsets:add(1)
+    end
+    targets = sequence:index(1, offsets)
+    rnn:zeroGradParameters()
+    local outputs = rnn:forward(inputs)
 
-  local err
-  if opt.select ~= 'false' then
-    err = criterion:forward(outputs, targets)
-    local gradOutputs = criterion:backward(outputs, targets)
-    local gradInputs = rnn:backward(inputs, gradOutputs)
-  else
-    err = criterion:forward(outputs[opt.rho], targets)
-    local gradOutputs = criterion:backward(outputs[opt.rho], targets)
-    gradOutputsZeroed[opt.rho] = gradOutputs
-    local gradInputs = rnn:backward(inputs, gradOutputsZeroed)
-  end
-  print(string.format("Iteration %d ; NLL err = %f ", iteration, err))
-  rnn:updateParameters(opt.learning_rate)
+    local err
+    if opt.select ~= 'false' then
+      err = criterion:forward(outputs, targets)
+      local gradOutputs = criterion:backward(outputs, targets)
+      local gradInputs = rnn:backward(inputs, gradOutputs)
+    else
+      err = criterion:forward(outputs[opt.rho], targets)
+      local gradOutputs = criterion:backward(outputs[opt.rho], targets)
+      gradOutputsZeroed[opt.rho] = gradOutputs
+      local gradInputs = rnn:backward(inputs, gradOutputsZeroed)
+    end
+    print(string.format("Iteration %d ; NLL err = %f ", iteration, err))
+    rnn:updateParameters(opt.learning_rate)
 
-   if iteration % opt.eval_every == 0 then
-     eval(iteration)
-    --  torch.save("model_" .. iteration .. ".t7", rnn)
-     opt.learning_rate = opt.learning_rate * 0.1
-   end
+     if iteration % opt.eval_every == 0 then
+       eval(iteration)
+      --  torch.save("model_" .. iteration .. ".t7", rnn)
+       opt.learning_rate = opt.learning_rate * 0.1
+     end
+  end
+  -- torch.save("model.t7", rnn)
 end
 
-torch.save("model.t7", rnn)
+if opt.hypertuning ~= 'false' then
+  print("Hypertuning")
+  for n = 1,6 do
+    for _,m in ipairs{"lstm","grid-lstm"} do
+      for _,b in ipairs{1, 10, 100, 500 } do
+        for _,h in ipairs{10, 100, 200, 300} do
+          for _,d in ipairs{0,0.2,0.5} do
+            opt.nb_layers = n
+            opt.model = m
+            opt.batch_size = b
+            opt.hidden_size = h
+            opt.dropout = d
+            opt.iters = math.ceil( 400001 / b)
+            opt.eval_every = math.ceil(50000 / b)
+            print(opt.nb_layers, opt.model, "batch size: " .. opt.batch_size, "hidden size: " .. opt.hidden_size,"dropout: " .. opt.dropout)
+            train()
+          end
+        end
+      end
+    end
+  end
+else
+  train()
+end
