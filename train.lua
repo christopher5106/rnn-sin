@@ -237,8 +237,8 @@ if opt.hypertuning ~= 'false' then
             opt.batch_size = b
             opt.hidden_size = h
             opt.dropout = d
-            opt.iters = math.ceil( 400001 / b)
-            opt.eval_every = math.ceil(50000 / b)
+            opt.iters = 4000 -- math.ceil( 400001 / b)
+            opt.eval_every = 1000 -- math.ceil(50000 / b)
             print(opt.nb_layers, opt.model, "batch size: " .. opt.batch_size, "hidden size: " .. opt.hidden_size,"dropout: " .. opt.dropout)
             train()
           end
