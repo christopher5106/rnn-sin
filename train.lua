@@ -34,64 +34,65 @@ end
 
 nIndex = 1
 
-local rnn
+function buildModel()
+  local rnn
 
-if opt.resume ~= '' then
-  rnn = torch.load(opt.resume)
-else
+  if opt.resume ~= '' then
+    rnn = torch.load(opt.resume)
+  else
 
-  if opt.model == 'lstm' then
+    if opt.model == 'lstm' then
 
-    rnn = nn.Sequential()
-       :add(nn.FastLSTM(nIndex, opt.hidden_size))
-       :add(nn.NormStabilizer())
+      rnn = nn.Sequential()
+         :add(nn.FastLSTM(nIndex, opt.hidden_size))
+         :add(nn.NormStabilizer())
 
-    for i = 2,opt.nb_layers do
-       rnn:add(nn.FastLSTM(opt.hidden_size, opt.hidden_size))
-       :add(nn.NormStabilizer())
+      for i = 2,opt.nb_layers do
+         rnn:add(nn.FastLSTM(opt.hidden_size, opt.hidden_size))
+         :add(nn.NormStabilizer())
+      end
+
+    elseif opt.model == 'grid-lstm' then
+
+      rnn = nn.Sequential()
+        :add(nn.Linear(nIndex, opt.hidden_size))
+        :add(nn.Grid2DLSTM(opt.hidden_size, opt.nb_layers, opt.dropout, true, opt.rho))
+
     end
 
-  elseif opt.model == 'grid-lstm' then
+  -- just 2 different ways to write:
+    if opt.select ~= 'false' then
+      print("Mode selecttable")
+      rnn = nn.Sequential()
+          :add(nn.SplitTable(0,2))
+          :add(nn.Sequencer(rnn))
+          :add(nn.SelectTable(-1))
+          :add(nn.Dropout(0.5))
+          :add(nn.Linear(opt.hidden_size, opt.hidden_size))
+          :add(nn.ReLU())
+          :add(nn.Linear(opt.hidden_size, nIndex))
+          :add(nn.HardTanh())
 
-    rnn = nn.Sequential()
-      :add(nn.Linear(nIndex, opt.hidden_size))
-      :add(nn.Grid2DLSTM(opt.hidden_size, opt.nb_layers, opt.dropout, true, opt.rho))
+    else
+      print("Mode without selecttable")
+      rnn:add(nn.Dropout(0.5))
+       :add(nn.Linear(opt.hidden_size, opt.hidden_size))
+       :add(nn.ReLU())
+       :add(nn.Linear(opt.hidden_size, nIndex))
+       :add(nn.HardTanh())
 
+      rnn = nn.Sequencer(rnn)
+
+    end
+  end
+  if opt.gpu>0 then
+    rnn=rnn:cuda()
   end
 
--- just 2 different ways to write:
-  if opt.select ~= 'false' then
-    print("Mode selecttable")
-    rnn = nn.Sequential()
-        :add(nn.SplitTable(0,2))
-        :add(nn.Sequencer(rnn))
-        :add(nn.SelectTable(-1))
-        :add(nn.Dropout(0.5))
-        :add(nn.Linear(opt.hidden_size, opt.hidden_size))
-        :add(nn.ReLU())
-        :add(nn.Linear(opt.hidden_size, nIndex))
-        :add(nn.HardTanh())
-
-  else
-    print("Mode without selecttable")
-    rnn:add(nn.Dropout(0.5))
-     :add(nn.Linear(opt.hidden_size, opt.hidden_size))
-     :add(nn.ReLU())
-     :add(nn.Linear(opt.hidden_size, nIndex))
-     :add(nn.HardTanh())
-
-    rnn = nn.Sequencer(rnn)
-
-  end
-
+  return rnn
 end
 
-rnn:training()
-print(rnn)
-
-if opt.gpu>0 then
-  rnn=rnn:cuda()
-end
+local rnn
 
 criterion = nn.MSECriterion()
 if opt.gpu>0 then
@@ -155,6 +156,9 @@ function eval(i)
 end
 
 function train()
+  rnn = buildModel()
+  rnn:training()
+  print(rnn)
 
   offsets = {}
   for i=1,opt.batch_size do
