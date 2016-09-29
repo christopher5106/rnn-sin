@@ -3,10 +3,7 @@
 ![](img/output2.png)
 
 ```bash
-#train
-th rnn_train.lua
-#test
-th rnn_test.lua
+th train.lua -h
 ```
 
 More details in my [blog post](http://christopher5106.github.io/deep/learning/2016/07/14/element-research-torch-rnn-tutorial.html)
