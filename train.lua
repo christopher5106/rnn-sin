@@ -173,6 +173,7 @@ function train()
     end
   end
 
+  local train_losses = {}
 
   for iteration=1,opt.iters do
     rnn:forget()
@@ -210,14 +211,17 @@ function train()
       local gradInputs = rnn:backward(inputs, gradOutputsZeroed)
     end
     print(string.format("Iteration %d ; NLL err = %f ", iteration, err))
+    train_losses[iteration] = err
     rnn:updateParameters(opt.learning_rate)
 
-     if iteration % opt.eval_every == 0 then
+     if iteration % opt.eval_every == 0 or iteration == opt.iters then
        eval(iteration)
       --  torch.save("model_" .. iteration .. ".t7", rnn)
        opt.learning_rate = opt.learning_rate * 0.1
      end
   end
+  torch.save("train_losses_" .. opt.nb_layers .. "x" .. opt.model .. "_b" .. opt.batch_size .. "_h" .. opt.hidden_size .. "_i" .. opt.iters .. ".t7",train_losses)
+  return train_losses
   -- torch.save("model.t7", rnn)
 end
 
