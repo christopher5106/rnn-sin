@@ -135,7 +135,7 @@ for step=1,opt.rho do
   end
 end
 
-function eval()
+function eval(i)
   rnn:evaluate()
   local predict = torch.FloatTensor(opt.nPredict)
   if opt.gpu>0 then
@@ -173,7 +173,7 @@ function eval()
     end
   end
 
-  gnuplot.pngfigure("output.png")
+  gnuplot.pngfigure("output_" .. i .. ".png")
   gnuplot.plot({'predict',predict,'+'},{'sinus',sequence:narrow(1,1,opt.nPredict),'-'})
   gnuplot.plotflush()
 
@@ -218,7 +218,7 @@ for iteration=1,opt.iters do
   rnn:updateParameters(opt.learning_rate)
 
    if iteration % opt.eval_every == 0 then
-     eval()
+     eval(iteration)
     --  torch.save("model_" .. iteration .. ".t7", rnn)
      opt.learning_rate = opt.learning_rate * 0.1
    end
