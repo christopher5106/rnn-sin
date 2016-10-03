@@ -231,7 +231,7 @@ end
 
 if opt.hypertuning ~= 'false' then
   print("Hypertuning")
-  for n = 1,6 do
+  for n = 2,6 do
     for _,m in ipairs{"lstm","grid-lstm"} do
       for _,b in ipairs{1, 10, 100, 500 } do
         for _,h in ipairs{10, 100, 200, 300} do
